@@ -31,10 +31,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Variables de entorno
-ENV PORT=8081
+ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8081
+EXPOSE 8080
 
 # Comando de inicio
 CMD ["python", "app.py"]
