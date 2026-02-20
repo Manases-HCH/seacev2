@@ -98,21 +98,20 @@ class SeaceScraperCompleto:
         logger.info(f"   Título: {self.driver.title} | URL: {self.driver.current_url}")
         sleep(3)
 
-        # Pestaña
-        logger.info("🔖 Seleccionando pestaña...")
+        logger.info("🔖 Seleccionando pestaña 'Buscador de Procedimientos'...")
         try:
-            tab = WebDriverWait(self.driver, 10).until(
+            tab_link = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, '//a[@href="#tbBuscador:tab1"]'))
             )
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", tab)
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", tab_link)
             sleep(0.5)
-            self.driver.execute_script("arguments[0].click();", tab)
+            self.driver.execute_script("arguments[0].click();", tab_link)
             sleep(2)
             logger.info("   ✓ Pestaña seleccionada")
         except TimeoutException:
             logger.error("❌ No se pudo seleccionar la pestaña")
             logger.error(self.driver.page_source[:3000])
-            return ''
+            return False
 
         # Búsqueda avanzada
         logger.info("🔽 Abriendo búsqueda avanzada...")
