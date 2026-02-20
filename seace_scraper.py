@@ -241,11 +241,11 @@ def main():
         print("❌ La fecha fin debe ser posterior")
         return
 
-    scraper = SeaceScraperExport(headless=True)
+    scraper = SeaceScraperCompleto(headless=True)
 
     try:
         scraper.iniciar()
-        archivo = scraper.buscar_y_exportar(fecha_inicio, fecha_fin)
+        archivo = scraper.buscar_y_extraer(fecha_inicio, fecha_fin)
 
         if archivo:
             archivo_final = scraper.renombrar_archivo(archivo, fecha_inicio)
