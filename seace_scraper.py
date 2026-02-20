@@ -85,7 +85,7 @@ class SeaceScraperCompleto:
         self.driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", elem)
         sleep(0.2)
 
-    def buscar_y_exportar(self, fecha_inicio: datetime, fecha_fin: datetime) -> str:
+    def buscar_y_extraer(self, fecha_inicio: datetime, fecha_fin: datetime) -> str:
         """
         Realiza la búsqueda y hace clic en 'Exportar a Excel'.
         Retorna la ruta del archivo descargado, o '' si falla.
