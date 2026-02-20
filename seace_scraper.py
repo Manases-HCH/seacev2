@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 DOWNLOAD_DIR = '/tmp/seace_downloads'
 
 
-class SeaceScraperExport:
+class SeaceScraperCompleto:
 
     def __init__(self, headless: bool = True):
         self.headless = headless
