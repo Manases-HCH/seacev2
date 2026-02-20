@@ -4,7 +4,9 @@ import os
 import glob
 from datetime import datetime
 from time import sleep
+import re
 
+import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -24,42 +26,50 @@ class SeaceScraperCompleto:
     def __init__(self, headless: bool = True):
         self.headless = headless
         self.driver = None
+        self.resultados = []
 
     def iniciar(self):
+        """Inicia el navegador"""
         logger.info("🚀 Iniciando navegador...")
 
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
         options = Options()
+
+        # CRITICAL: Opciones obligatorias para Cloud Run
         options.add_argument('--headless=new')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
         options.add_argument('--disable-software-rasterizer')
         options.add_argument('--disable-extensions')
+
+        # Optimizaciones
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_argument('--window-size=1920,1080')
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
 
-        # ✅ CLAVE: configurar carpeta de descarga automática
+        # ✅ Carpeta de descarga automática + deshabilitar imágenes
         prefs = {
             "download.default_directory": DOWNLOAD_DIR,
             "download.prompt_for_download": False,
             "download.directory_upgrade": True,
             "safebrowsing.enabled": True,
-            "profile.default_content_setting_values.notifications": 2,
             "profile.managed_default_content_settings.images": 2,
+            "profile.default_content_setting_values.notifications": 2,
         }
         options.add_experimental_option("prefs", prefs)
 
         try:
             self.driver = webdriver.Chrome(options=options)
+            logger.info("✅ Chrome iniciado desde PATH")
         except Exception as e:
-            logger.info(f"⚠️ Intentando ruta explícita: {e}")
+            logger.info(f"⚠️ Intentando con ruta explícita: {e}")
             service = Service('/usr/local/bin/chromedriver')
             self.driver = webdriver.Chrome(service=service, options=options)
+            logger.info("✅ Chrome iniciado con ruta explícita")
 
-        # Habilitar descargas en headless (necesario en Chrome moderno)
+        # ✅ Habilitar descargas en headless (necesario en Chrome moderno)
         self.driver.execute_cdp_cmd(
             "Page.setDownloadBehavior",
             {"behavior": "allow", "downloadPath": DOWNLOAD_DIR}
@@ -68,10 +78,12 @@ class SeaceScraperCompleto:
         logger.info("✅ Navegador iniciado\n")
 
     def cerrar(self):
+        """Cierra el navegador"""
         if self.driver:
             self.driver.quit()
 
     def click(self, xpath: str, wait_after: float = 0.3):
+        """Hace clic usando JavaScript con espera configurable"""
         elem = self.driver.find_element(By.XPATH, xpath)
         self.driver.execute_script("arguments[0].scrollIntoView(true);", elem)
         sleep(0.2)
@@ -79,6 +91,7 @@ class SeaceScraperCompleto:
         sleep(wait_after)
 
     def escribir(self, xpath: str, texto: str):
+        """Escribe en un campo"""
         elem = self.driver.find_element(By.XPATH, xpath)
         self.driver.execute_script("arguments[0].value = '';", elem)
         self.driver.execute_script("arguments[0].value = arguments[1];", elem, texto)
@@ -87,7 +100,7 @@ class SeaceScraperCompleto:
 
     def buscar_y_extraer(self, fecha_inicio: datetime, fecha_fin: datetime) -> str:
         """
-        Realiza la búsqueda y hace clic en 'Exportar a Excel'.
+        Ejecuta la búsqueda y descarga el Excel con el botón 'Exportar a Excel'.
         Retorna la ruta del archivo descargado, o '' si falla.
         """
         logger.info(f"📅 Rango: {fecha_inicio.strftime('%d/%m/%Y')} → {fecha_fin.strftime('%d/%m/%Y')}")
@@ -96,11 +109,12 @@ class SeaceScraperCompleto:
         self.driver.get("https://prod2.seace.gob.pe/seacebus-uiwd-pub/buscadorPublico/buscadorPublico.xhtml")
         logger.info("📄 Página cargada")
         logger.info(f"   Título: {self.driver.title} | URL: {self.driver.current_url}")
-        sleep(3)
+        sleep(2)
 
+        # Pestaña
         logger.info("🔖 Seleccionando pestaña 'Buscador de Procedimientos'...")
         try:
-            tab_link = WebDriverWait(self.driver, 20).until(
+            tab_link = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, '//a[@href="#tbBuscador:tab1"]'))
             )
             self.driver.execute_script("arguments[0].scrollIntoView(true);", tab_link)
@@ -111,7 +125,7 @@ class SeaceScraperCompleto:
         except TimeoutException:
             logger.error("❌ No se pudo seleccionar la pestaña")
             logger.error(self.driver.page_source[:3000])
-            return False
+            return ''
 
         # Búsqueda avanzada
         logger.info("🔽 Abriendo búsqueda avanzada...")
@@ -119,7 +133,7 @@ class SeaceScraperCompleto:
         sleep(1)
 
         # Año
-        logger.info(f"📅 Año: {fecha_inicio.year}")
+        logger.info(f"📅 Seleccionando año: {fecha_inicio.year}")
         self.click('//*[@id="tbBuscador:idFormBuscarProceso:anioConvocatoria_label"]')
         sleep(0.5)
         self.click(f'//*[@id="tbBuscador:idFormBuscarProceso:anioConvocatoria_panel"]/div/ul/li[@data-label="{fecha_inicio.year}"]')
@@ -150,12 +164,16 @@ class SeaceScraperCompleto:
         try:
             msg = self.driver.find_element(By.XPATH, '//td[contains(text(), "No se encontraron")]')
             if msg.is_displayed():
-                logger.info("ℹ️  Sin datos para este rango")
+                logger.info("ℹ️  No hay datos para estas fechas")
                 return ''
         except NoSuchElementException:
             pass
 
-        # ✅ EXPORTAR A EXCEL
+        # ✅ Snapshot ANTES del clic para detectar solo archivos nuevos
+        archivos_previos = set(glob.glob(os.path.join(DOWNLOAD_DIR, '*.xls*')))
+        logger.info(f"   📂 Archivos previos en carpeta: {len(archivos_previos)}")
+
+        # Exportar a Excel
         logger.info("📥 Haciendo clic en 'Exportar a Excel'...")
         try:
             btn_exportar = WebDriverWait(self.driver, 10).until(
@@ -169,23 +187,31 @@ class SeaceScraperCompleto:
             logger.error("❌ No se encontró el botón Exportar")
             return ''
 
-        # Esperar a que el archivo se descargue
-        archivo = self._esperar_descarga(timeout=30)
+        # Esperar descarga
+        archivo = self._esperar_descarga(archivos_previos=archivos_previos, timeout=30)
         return archivo
 
-    def _esperar_descarga(self, timeout: int = 30) -> str:
-        """Espera a que aparezca un .xlsx en la carpeta de descargas"""
+    def _esperar_descarga(self, archivos_previos: set = None, timeout: int = 30) -> str:
+        """Espera a que aparezca un archivo .xlsx NUEVO (ignorando los previos)"""
         logger.info(f"⏳ Esperando descarga en {DOWNLOAD_DIR}...")
+
+        if archivos_previos is None:
+            archivos_previos = set()
 
         for i in range(timeout):
             sleep(1)
-            # Buscar archivos xlsx que NO sean temporales (.crdownload)
-            archivos = glob.glob(os.path.join(DOWNLOAD_DIR, '*.xlsx'))
-            archivos += glob.glob(os.path.join(DOWNLOAD_DIR, '*.xls'))
 
-            if archivos:
-                # Tomar el más reciente
-                archivo = max(archivos, key=os.path.getmtime)
+            archivos_actuales = set(glob.glob(os.path.join(DOWNLOAD_DIR, '*.xlsx')))
+            archivos_actuales |= set(glob.glob(os.path.join(DOWNLOAD_DIR, '*.xls')))
+
+            # Solo archivos nuevos, sin temporales de Chrome
+            archivos_nuevos = {
+                a for a in (archivos_actuales - archivos_previos)
+                if not a.endswith('.crdownload')
+            }
+
+            if archivos_nuevos:
+                archivo = max(archivos_nuevos, key=os.path.getmtime)
                 logger.info(f"✅ Descarga completada: {archivo}")
                 return archivo
 
@@ -196,7 +222,7 @@ class SeaceScraperCompleto:
         return ''
 
     def renombrar_archivo(self, archivo_original: str, fecha_inicio: datetime) -> str:
-        """Renombra el archivo descargado al formato LICIT_PROD2_AAMMDD.xlsx"""
+        """Renombra el archivo al formato LICIT_PROD2_AAMMDD.xlsx"""
         if not archivo_original or not os.path.exists(archivo_original):
             return ''
 
@@ -209,39 +235,72 @@ class SeaceScraperCompleto:
         return nombre_nuevo
 
 
+def pedir_fecha(texto: str) -> datetime:
+    """Pide una fecha al usuario"""
+    while True:
+        try:
+            entrada = input(texto).strip()
+            for sep in ['/', '-', '.']:
+                if sep in entrada:
+                    partes = entrada.split(sep)
+                    if len(partes) == 3:
+                        dia, mes, anio = int(partes[0]), int(partes[1]), int(partes[2])
+                        if 1 <= dia <= 31 and 1 <= mes <= 12 and 2000 <= anio <= 2030:
+                            return datetime(anio, mes, dia)
+            print("❌ Formato: DD/MM/YYYY (ej: 25/12/2025)")
+        except ValueError as e:
+            print(f"❌ Error: {e}")
+
+
 def main():
     print("\n" + "=" * 70)
-    print("🚀 SEACE SCRAPER - EXPORTAR A EXCEL")
+    print("🚀 SEACE SCRAPER COMPLETO - EXPORTAR A EXCEL")
+    print("=" * 70)
+    print("ℹ️  El navegador se ejecutará en segundo plano (sin ventana)")
     print("=" * 70)
 
-    # Argumentos: python seace_scraper_export.py 2026-02-19 2026-02-19
+    modo_headless = True
+
+    if '--visible' in sys.argv:
+        modo_headless = False
+        sys.argv.remove('--visible')
+        print("\n⚠️  Modo VISIBLE activado (verás el navegador)")
+
     if len(sys.argv) >= 3:
         try:
             fecha_inicio = datetime.strptime(sys.argv[1], '%Y-%m-%d')
             fecha_fin = datetime.strptime(sys.argv[2], '%Y-%m-%d')
+            print(f"\n📅 Fechas desde argumentos:")
         except ValueError:
-            print("❌ Uso: python seace_scraper_export.py YYYY-MM-DD YYYY-MM-DD")
+            print("\n❌ Error: Formato incorrecto")
+            print("   Uso: python seace_scraper.py YYYY-MM-DD YYYY-MM-DD")
             return
     else:
-        print("\n📅 Formato: DD/MM/YYYY\n")
-        while True:
-            try:
-                fecha_inicio = datetime.strptime(input("Fecha inicio: ").strip(), '%d/%m/%Y')
-                break
-            except ValueError:
-                print("❌ Usa DD/MM/YYYY")
-        while True:
-            try:
-                fecha_fin = datetime.strptime(input("Fecha fin:    ").strip(), '%d/%m/%Y')
-                break
-            except ValueError:
-                print("❌ Usa DD/MM/YYYY")
+        print("\n📅 Formato: DD/MM/YYYY (ejemplo: 25/01/2026)\n")
+        fecha_inicio = pedir_fecha("📅 Fecha inicio: ")
+        fecha_fin = pedir_fecha("📅 Fecha fin:    ")
 
     if fecha_fin < fecha_inicio:
-        print("❌ La fecha fin debe ser posterior")
+        print("\n❌ La fecha fin debe ser posterior")
         return
 
-    scraper = SeaceScraperCompleto(headless=True)
+    print("\n" + "-" * 70)
+    print(f"✓ Inicio: {fecha_inicio.strftime('%d/%m/%Y')}")
+    print(f"✓ Fin:    {fecha_fin.strftime('%d/%m/%Y')}")
+    print(f"✓ Días:   {(fecha_fin - fecha_inicio).days + 1}")
+    print("-" * 70)
+
+    if len(sys.argv) < 3:
+        conf = input("\n¿Continuar? (s/n): ").strip().lower()
+        if conf not in ['s', 'si', 'sí', 'yes', 'y']:
+            print("\n❌ Cancelado")
+            return
+
+    print("\n" + "=" * 70)
+    print("🚀 INICIANDO EXTRACCIÓN...")
+    print("=" * 70 + "\n")
+
+    scraper = SeaceScraperCompleto(headless=modo_headless)
 
     try:
         scraper.iniciar()
@@ -249,9 +308,16 @@ def main():
 
         if archivo:
             archivo_final = scraper.renombrar_archivo(archivo, fecha_inicio)
-            print(f"\n✅ Archivo listo: {archivo_final}\n")
+            logger.info("⏳ Esperando antes de cerrar...")
+            sleep(3)
+            print("\n" + "=" * 70)
+            print("✅ ¡EXTRACCIÓN COMPLETADA!")
+            print("=" * 70)
+            print(f"\n💾 Archivo: {archivo_final}\n")
         else:
-            print("\n⚠️  No se pudo obtener el archivo\n")
+            print("\n" + "=" * 70)
+            print("⚠️  SIN RESULTADOS")
+            print("=" * 70 + "\n")
 
     except Exception as e:
         print(f"\n❌ ERROR: {e}\n")
