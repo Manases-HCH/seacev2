@@ -100,7 +100,7 @@ class SeaceScraperCompleto:
 
         logger.info("🔖 Seleccionando pestaña 'Buscador de Procedimientos'...")
         try:
-            tab_link = WebDriverWait(self.driver, 10).until(
+            tab_link = WebDriverWait(self.driver, 20).until(
                 EC.presence_of_element_located((By.XPATH, '//a[@href="#tbBuscador:tab1"]'))
             )
             self.driver.execute_script("arguments[0].scrollIntoView(true);", tab_link)
