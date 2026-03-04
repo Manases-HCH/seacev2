@@ -168,7 +168,13 @@ class SeaceScraperCompleto:
                 return ''
         except NoSuchElementException:
             pass
-
+            
+        try:
+            filas = self.driver.find_elements(By.XPATH, '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr')
+            logger.info(f"   📊 Filas visibles en tabla: {len(filas)}")
+        except:
+            pass
+        
         # ✅ Snapshot ANTES del clic para detectar solo archivos nuevos
         archivos_previos = set(glob.glob(os.path.join(DOWNLOAD_DIR, '*.xls*')))
         logger.info(f"   📂 Archivos previos en carpeta: {len(archivos_previos)}")
