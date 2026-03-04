@@ -223,7 +223,7 @@ class SeaceScraperCompleto:
 
     def renombrar_archivo(self, archivo_original: str, fecha_inicio: datetime) -> str:
         if not archivo_original or not os.path.exists(archivo_original):
-        return ''
+            return ''
 
         nombre_nuevo = os.path.join(
             DOWNLOAD_DIR,
