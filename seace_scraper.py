@@ -5,8 +5,7 @@ import glob
 from datetime import datetime
 from time import sleep
 import re
-import xlrd
-from openpyxl import Workbook
+
 import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -223,32 +222,30 @@ class SeaceScraperCompleto:
         return ''
 
     def renombrar_archivo(self, archivo_original: str, fecha_inicio: datetime) -> str:
-        """Renombra Y convierte el archivo al formato xlsx real"""
         if not archivo_original or not os.path.exists(archivo_original):
-            return ''
+        return ''
 
         nombre_nuevo = os.path.join(
             DOWNLOAD_DIR,
             f"LICIT_PROD2_{fecha_inicio.strftime('%y%m%d')}.xlsx"
         )
-
-        # ✅ Detectar si es realmente un xls antiguo o HTML disfrazado
+    
+        # Detectar formato real por cabecera de bytes
         with open(archivo_original, 'rb') as f:
             cabecera = f.read(8)
-
-        es_xls_real = cabecera[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'  # firma OLE2
-        es_xlsx_real = cabecera[:4] == b'PK\x03\x04'                         # firma ZIP/xlsx
-        
-        logger.info(f"   Cabecera: {cabecera[:8].hex()} | XLS={es_xls_real} | XLSX={es_xlsx_real}")
-
+    
+        es_xlsx = cabecera[:4] == b'PK\x03\x04'
+        es_xls  = cabecera[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
+        logger.info(f"   Formato detectado — XLSX={es_xlsx} | XLS={es_xls} | HTML={not es_xlsx and not es_xls}")
+    
         try:
-            if es_xlsx_real:
-                # Ya es xlsx válido, solo renombrar
+            if es_xlsx:
                 os.rename(archivo_original, nombre_nuevo)
-
-            elif es_xls_real:
-                # Es XLS binario antiguo → convertir
-                logger.info("   🔄 Convirtiendo XLS → XLSX...")
+    
+            elif es_xls:
+                import xlrd
+                from openpyxl import Workbook
+                logger.info("🔄 Convirtiendo XLS → XLSX...")
                 wb_old = xlrd.open_workbook(archivo_original)
                 ws_old = wb_old.sheet_by_index(0)
                 wb_new = Workbook()
@@ -257,26 +254,26 @@ class SeaceScraperCompleto:
                     ws_new.append(ws_old.row_values(row))
                 wb_new.save(nombre_nuevo)
                 os.remove(archivo_original)
-
+    
             else:
-                # Probablemente HTML disfrazado (común en SEACE)
-                logger.info("   🔄 Convirtiendo HTML→Excel con pandas...")
-                import pandas as pd
-                # pandas puede leer HTML con extensión xls
-                dfs = pd.read_html(archivo_original, encoding='utf-8')
+                # HTML disfrazado — caso más común en SEACE/JSF
+                logger.info("🔄 Convirtiendo HTML → XLSX...")
+                try:
+                    dfs = pd.read_html(archivo_original, encoding='utf-8')
+                except Exception:
+                    dfs = pd.read_html(archivo_original, encoding='latin-1')
                 with pd.ExcelWriter(nombre_nuevo, engine='openpyxl') as writer:
                     for idx, df in enumerate(dfs):
                         df.to_excel(writer, sheet_name=f'Hoja{idx+1}', index=False)
                 os.remove(archivo_original)
-
-            logger.info(f"✅ Guardado como: {nombre_nuevo}")
-            return nombre_nuevo
-
+    
         except Exception as e:
-            logger.error(f"❌ Error convirtiendo archivo: {e}")
-            # Fallback: renombrar igual aunque Excel se queje
-            os.rename(archivo_original, nombre_nuevo)
-            return nombre_nuevo
+            logger.error(f"❌ Error convirtiendo: {e}")
+            if os.path.exists(archivo_original):
+                os.rename(archivo_original, nombre_nuevo)
+    
+        logger.info(f"📄 Renombrado a: {nombre_nuevo}")
+        return nombre_nuevo
 
 
 def pedir_fecha(texto: str) -> datetime:
