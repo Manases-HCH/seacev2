@@ -177,7 +177,7 @@ class SeaceScraperCompleto:
         logger.info("📥 Haciendo clic en 'Exportar a Excel'...")
         try:
             btn_exportar = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.ID, 'tbBuscador:idFormBuscarProceso:btnExportar'))
+                EC.presence_of_element_located((By.ID, 'tbBuscador:idFormBuscarProceso:btnExportar'))
             )
             self.driver.execute_script("arguments[0].scrollIntoView(true);", btn_exportar)
             sleep(0.5)
