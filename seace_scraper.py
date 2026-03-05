@@ -151,7 +151,7 @@ class SeaceScraperCompleto:
         self.click('//*[@id="tbBuscador:idFormBuscarProceso:btnBuscarSelToken"]')
         logger.info("⏳ Esperando resultados...")
 
-        logger.info("⏳ Esperando que la tabla cargue filas...")
+        logger.info("⏳ Esperando filas reales en tabla...")
         try:
             WebDriverWait(self.driver, 20).until(
                 EC.presence_of_element_located((By.XPATH,
@@ -160,42 +160,71 @@ class SeaceScraperCompleto:
             )
             filas = self.driver.find_elements(By.XPATH,
                 '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr')
-            logger.info(f"   📊 Filas en tabla: {len(filas)}")
-            sleep(2)  # estabilizar JSF
+            logger.info(f"   📊 Filas visibles: {len(filas)}")
+            sleep(3)  # ✅ dejar que JSF estabilice el ViewState
         except TimeoutException:
-            logger.warning("⚠️ No se detectaron filas, intentando exportar igual...")
+            logger.warning("⚠️ No se detectaron filas")
 
-        # Verificar si hay datos
-        try:
-            msg = self.driver.find_element(By.XPATH, '//td[contains(text(), "No se encontraron")]')
-            if msg.is_displayed():
-                logger.info("ℹ️  No hay datos para estas fechas")
-                return ''
-        except NoSuchElementException:
-            pass
-            
-        try:
-            filas = self.driver.find_elements(By.XPATH, '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr')
-            logger.info(f"   📊 Filas visibles en tabla: {len(filas)}")
-        except:
-            pass
-        
-        # ✅ Snapshot ANTES del clic para detectar solo archivos nuevos
+        # ✅ Snapshot ANTES del clic
         archivos_previos = set(glob.glob(os.path.join(DOWNLOAD_DIR, '*.xls*')))
-        logger.info(f"   📂 Archivos previos en carpeta: {len(archivos_previos)}")
+        logger.info(f"   📂 Archivos previos: {len(archivos_previos)}")
 
-        # Exportar a Excel
-        logger.info("📥 Haciendo clic en 'Exportar a Excel'...")
+        # ✅ Exportar — forzar submit del formulario JSF directamente
+        logger.info("📥 Exportando a Excel...")
         try:
             btn_exportar = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.ID, 'tbBuscador:idFormBuscarProceso:btnExportar'))
             )
             self.driver.execute_script("arguments[0].scrollIntoView(true);", btn_exportar)
-            sleep(0.5)
-            self.driver.execute_script("arguments[0].click();", btn_exportar)
-            logger.info("   ✓ Clic en exportar ejecutado")
+            sleep(1)
+
+            # ✅ Intentar 3 métodos en orden
+            exportado = False
+
+            # Método 1: submit directo del formulario JSF
+            try:
+                self.driver.execute_script("""
+                    var btn = arguments[0];
+                    var form = btn.closest('form');
+                    if (form) {
+                        // Simular click nativo que JSF espera
+                        var event = new MouseEvent('click', {bubbles: true, cancelable: true});
+                        btn.dispatchEvent(event);
+                    }
+                """, btn_exportar)
+                logger.info("   ✓ Método 1 (MouseEvent nativo)")
+                exportado = True
+            except Exception as e:
+                logger.warning(f"   Método 1 falló: {e}")
+
+            sleep(2)
+
+            # Método 2: click directo de Selenium si método 1 no descargó
+            archivos_check = set(glob.glob(os.path.join(DOWNLOAD_DIR, '*'))) - archivos_previos
+            if not archivos_check:
+                try:
+                    btn_exportar.click()
+                    logger.info("   ✓ Método 2 (Selenium .click())")
+                    exportado = True
+                except Exception as e:
+                    logger.warning(f"   Método 2 falló: {e}")
+                sleep(2)
+
+            # Método 3: PrimeFaces API directa
+            archivos_check = set(glob.glob(os.path.join(DOWNLOAD_DIR, '*'))) - archivos_previos
+            if not archivos_check:
+                try:
+                    self.driver.execute_script(
+                        "PrimeFaces.ab({s:'tbBuscador:idFormBuscarProceso:btnExportar'});"
+                    )
+                    logger.info("   ✓ Método 3 (PrimeFaces.ab)")
+                    exportado = True
+                except Exception as e:
+                    logger.warning(f"   Método 3 falló: {e}")
+                sleep(2)
+
         except TimeoutException:
-            logger.error("❌ No se encontró el botón Exportar")
+            logger.error("❌ Botón Exportar no encontrado")
             return ''
 
         # Esperar descarga
