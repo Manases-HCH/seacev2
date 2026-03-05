@@ -151,14 +151,19 @@ class SeaceScraperCompleto:
         self.click('//*[@id="tbBuscador:idFormBuscarProceso:btnBuscarSelToken"]')
         logger.info("⏳ Esperando resultados...")
 
+        logger.info("⏳ Esperando que la tabla cargue filas...")
         try:
-            WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located((By.XPATH, '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]'))
+            WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.XPATH,
+                    '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr[not(contains(@class,"ui-datatable-empty-message"))]'
+                ))
             )
-            sleep(2)
+            filas = self.driver.find_elements(By.XPATH,
+                '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr')
+            logger.info(f"   📊 Filas en tabla: {len(filas)}")
+            sleep(2)  # estabilizar JSF
         except TimeoutException:
-            logger.error("❌ Tabla de resultados no apareció")
-            return ''
+            logger.warning("⚠️ No se detectaron filas, intentando exportar igual...")
 
         # Verificar si hay datos
         try:
