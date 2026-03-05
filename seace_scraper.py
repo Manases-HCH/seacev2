@@ -265,53 +265,14 @@ class SeaceScraperCompleto:
         if not archivo_original or not os.path.exists(archivo_original):
             return ''
 
+        # Conservar extensión original
+        ext = os.path.splitext(archivo_original)[1]  # .xls o .xlsx
         nombre_nuevo = os.path.join(
             DOWNLOAD_DIR,
-            f"LICIT_PROD2_{fecha_inicio.strftime('%y%m%d')}.xlsx"
+            f"LICIT_PROD2_{fecha_inicio.strftime('%y%m%d')}{ext}"
         )
-    
-        # Detectar formato real por cabecera de bytes
-        with open(archivo_original, 'rb') as f:
-            cabecera = f.read(8)
-    
-        es_xlsx = cabecera[:4] == b'PK\x03\x04'
-        es_xls  = cabecera[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
-        logger.info(f"   Formato detectado — XLSX={es_xlsx} | XLS={es_xls} | HTML={not es_xlsx and not es_xls}")
-    
-        try:
-            if es_xlsx:
-                os.rename(archivo_original, nombre_nuevo)
-    
-            elif es_xls:
-                import xlrd
-                from openpyxl import Workbook
-                logger.info("🔄 Convirtiendo XLS → XLSX...")
-                wb_old = xlrd.open_workbook(archivo_original)
-                ws_old = wb_old.sheet_by_index(0)
-                wb_new = Workbook()
-                ws_new = wb_new.active
-                for row in range(ws_old.nrows):
-                    ws_new.append(ws_old.row_values(row))
-                wb_new.save(nombre_nuevo)
-                os.remove(archivo_original)
-    
-            else:
-                # HTML disfrazado — caso más común en SEACE/JSF
-                logger.info("🔄 Convirtiendo HTML → XLSX...")
-                try:
-                    dfs = pd.read_html(archivo_original, encoding='utf-8')
-                except Exception:
-                    dfs = pd.read_html(archivo_original, encoding='latin-1')
-                with pd.ExcelWriter(nombre_nuevo, engine='openpyxl') as writer:
-                    for idx, df in enumerate(dfs):
-                        df.to_excel(writer, sheet_name=f'Hoja{idx+1}', index=False)
-                os.remove(archivo_original)
-    
-        except Exception as e:
-            logger.error(f"❌ Error convirtiendo: {e}")
-            if os.path.exists(archivo_original):
-                os.rename(archivo_original, nombre_nuevo)
-    
+
+        os.rename(archivo_original, nombre_nuevo)
         logger.info(f"📄 Renombrado a: {nombre_nuevo}")
         return nombre_nuevo
 
