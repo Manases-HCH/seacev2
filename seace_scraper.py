@@ -6,9 +6,7 @@ from datetime import datetime
 from time import sleep
 
 import pandas as pd
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
@@ -28,37 +26,20 @@ class SeaceScraperCompleto:
         self.resultados = []
 
     def iniciar(self):
-        """Inicia el navegador"""
-        logger.info("🚀 Iniciando navegador...")
+        """Inicia el navegador con undetected-chromedriver (anti-bot)"""
+        logger.info("🚀 Iniciando navegador (undetected-chromedriver)...")
 
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-        options = Options()
-
-        # ── Headless con menor huella de detección ─────────────────────
-        # '--headless=old' es detectado por sitios JSF/PrimeFaces como SEACE.
-        # '--headless=new' (Chrome >= 112) tiene mejor evasión anti-bot.
-        options.add_argument('--headless=new')
+        options = uc.ChromeOptions()
 
         # Obligatorias para Cloud Run
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
         options.add_argument('--disable-software-rasterizer')
-        options.add_argument('--disable-extensions')
-
-        # ── Anti-detección ─────────────────────────────────────────────
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        # User-agent real de Chrome (sin "HeadlessChrome" en el string)
-        options.add_argument(
-            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) '
-            'Chrome/122.0.0.0 Safari/537.36'
-        )
         options.add_argument('--window-size=1920,1080')
         options.add_argument('--lang=es-PE,es;q=0.9')
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
 
         # Carpeta de descarga automática + deshabilitar imágenes
         prefs = {
@@ -71,21 +52,24 @@ class SeaceScraperCompleto:
         }
         options.add_experimental_option("prefs", prefs)
 
+        # ── undetected_chromedriver ────────────────────────────────────
+        # headless=True usa el modo nuevo internamente y parchea el binario
+        # para eliminar todas las firmas de automatización detectables.
         try:
-            self.driver = webdriver.Chrome(options=options)
-            logger.info("✅ Chrome iniciado (headless=new, modo stealth)")
+            self.driver = uc.Chrome(
+                options=options,
+                headless=True,
+                use_subprocess=False,   # necesario en Cloud Run (sin fork)
+            )
+            logger.info("✅ Chrome iniciado (undetected-chromedriver)")
         except Exception as e:
-            logger.warning(f"⚠️ headless=new falló, reintentando con headless=old: {e}")
-            options.arguments.remove('--headless=new')
-            options.add_argument('--headless=old')
-            try:
-                self.driver = webdriver.Chrome(options=options)
-                logger.info("✅ Chrome iniciado (headless=old fallback)")
-            except Exception as e2:
-                logger.info(f"⚠️ Intentando con ruta explícita: {e2}")
-                service = Service('/usr/local/bin/chromedriver')
-                self.driver = webdriver.Chrome(service=service, options=options)
-                logger.info("✅ Chrome iniciado con ruta explícita")
+            logger.warning(f"⚠️ Primer intento falló: {e}")
+            # Fallback: sin use_subprocess
+            self.driver = uc.Chrome(
+                options=options,
+                headless=True,
+            )
+            logger.info("✅ Chrome iniciado (undetected-chromedriver fallback)")
 
         # Habilitar descargas en headless
         self.driver.execute_cdp_cmd(
@@ -93,24 +77,7 @@ class SeaceScraperCompleto:
             {"behavior": "allow", "downloadPath": DOWNLOAD_DIR}
         )
 
-        # ── Inyectar JS stealth ANTES de cualquier navegación ──────────
-        # Elimina los rastros de webdriver que los sitios detectan
-        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": """
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                Object.defineProperty(navigator, 'languages', {get: () => ['es-PE', 'es', 'en-US', 'en']});
-                window.chrome = { runtime: {} };
-                const _origQuery = window.navigator.permissions.query;
-                window.navigator.permissions.query = (p) => (
-                    p.name === 'notifications'
-                        ? Promise.resolve({ state: Notification.permission })
-                        : _origQuery(p)
-                );
-            """
-        })
-
-        logger.info("✅ Navegador iniciado con modo stealth\n")
+        logger.info("✅ Navegador iniciado\n")
 
     def cerrar(self):
         """Cierra el navegador"""
