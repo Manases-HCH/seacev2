@@ -115,8 +115,14 @@ class SeaceScraperCompleto:
                     "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));", selector
                 )
                 sleep(2)
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH,
+                        '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr[2]'
+                    ))
+                )
+                sleep(1)
                 logger.info("   ✅ Cambiado a 20 filas por página")
-            except NoSuchElementException:
+            except (NoSuchElementException, TimeoutException):
                 logger.info("   ℹ️ No se pudo cambiar paginación")
 
             # Columnas que nos interesan (sin "Acciones")
@@ -165,6 +171,11 @@ class SeaceScraperCompleto:
                         '/parent::span[not(contains(@class,"ui-state-disabled"))]'
                     )
                     self.driver.execute_script("arguments[0].click();", btn_next)
+                    WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located((By.XPATH,
+                            '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr[1]'
+                        ))
+                    )
                     sleep(1.5)
                     pagina += 1
                 except NoSuchElementException:
