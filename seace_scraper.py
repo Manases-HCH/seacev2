@@ -136,12 +136,27 @@ class SeaceScraperCompleto:
                 )
 
                 datos_pagina = []
-                for fila in filas:
-                    celdas = fila.find_elements(By.TAG_NAME, 'td')
-                    # Solo las primeras 12 columnas (ignorar "Acciones" col 13)
-                    valores = [c.text.strip() for c in celdas[:12]]
-                    if valores:
+                filas_count = len(driver.find_elements(By.XPATH,
+                    '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr'
+                ))
+        
+                for i in range(filas_count):
+                    try:
+                        celdas = self.driver.find_elements(By.XPATH,
+                            f'//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr[{i+1}]/td'
+                        )
+                        if len(celdas) < 12:
+                            continue
+                        valores = []
+                        for c in celdas[:12]:
+                            try:
+                                valores.append(c.text.strip())
+                            except:
+                                valores.append('')
                         datos_pagina.append(valores)
+                    except Exception as e:
+                        logger.warning(f"   ⚠️ Fila {i+1} saltada: {e}")
+                        continue
 
                 if datos_pagina:
                     todas_las_filas.extend(datos_pagina)
