@@ -97,7 +97,60 @@ class SeaceScraperCompleto:
         self.driver.execute_script("arguments[0].value = arguments[1];", elem, texto)
         self.driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", elem)
         sleep(0.2)
+        
+    def _scrapear_tabla_html(self, fecha_inicio: datetime) -> str:
+        """Extrae datos directamente del HTML cuando el botón exportar falla"""
+        logger.info("🔄 Scrapeando tabla directamente...")
+        try:
+            import pandas as pd
+            from io import StringIO
 
+            todas_las_filas = []
+            pagina = 1
+
+            while True:
+                logger.info(f"   📄 Página {pagina}...")
+                tabla = self.driver.find_element(
+                    By.ID, 'tbBuscador:idFormBuscarProceso:dtProcesos'
+                ).get_attribute('outerHTML')
+
+                dfs = pd.read_html(StringIO(tabla))
+                if dfs:
+                    df = dfs[0].dropna(how='all')
+                    if len(df) == 0:
+                        break
+                    todas_las_filas.append(df)
+                    logger.info(f"   ✅ {len(df)} filas")
+
+                # Siguiente página
+                try:
+                    btn_next = self.driver.find_element(By.XPATH,
+                        '//*[contains(@id,"dtProcesos_paginator")]'
+                        '//span[contains(@class,"ui-icon-seek-next")]'
+                        '[not(contains(@class,"ui-state-disabled"))]/parent::*'
+                    )
+                    self.driver.execute_script("arguments[0].click();", btn_next)
+                    sleep(2)
+                    pagina += 1
+                except NoSuchElementException:
+                    break
+
+            if not todas_las_filas:
+                logger.error("❌ Tabla vacía")
+                return ''
+
+            df_final = pd.concat(todas_las_filas, ignore_index=True)
+            logger.info(f"   📊 Total: {len(df_final)} filas")
+
+            archivo = os.path.join(DOWNLOAD_DIR, f"LICIT_PROD2_{fecha_inicio.strftime('%y%m%d')}.xlsx")
+            df_final.to_excel(archivo, index=False, engine='openpyxl')
+            logger.info(f"✅ Guardado: {archivo}")
+            return archivo
+
+        except Exception as e:
+            logger.error(f"❌ Error scraping tabla: {e}")
+            return ''
+            
     def buscar_y_extraer(self, fecha_inicio: datetime, fecha_fin: datetime) -> str:
         """
         Ejecuta la búsqueda y descarga el Excel con el botón 'Exportar a Excel'.
@@ -229,6 +282,13 @@ class SeaceScraperCompleto:
 
         # Esperar descarga
         archivo = self._esperar_descarga(archivos_previos=archivos_previos, timeout=30)
+        # Si llegó vacío → scrapear tabla directamente
+        if not archivo or os.path.getsize(archivo) < 10000:
+            if archivo:
+                logger.warning(f"⚠️ Archivo vacío ({os.path.getsize(archivo)}b) → scraping tabla")
+                os.remove(archivo)
+            return self._scrapear_tabla_html(fecha_inicio)
+
         return archivo
 
     def _esperar_descarga(self, archivos_previos: set = None, timeout: int = 30) -> str:
@@ -349,7 +409,11 @@ def main():
         archivo = scraper.buscar_y_extraer(fecha_inicio, fecha_fin)
 
         if archivo:
-            archivo_final = scraper.renombrar_archivo(archivo, fecha_inicio)
+            if os.path.basename(archivo).startswith('LICIT_PROD2_'):
+                archivo_final = archivo  # ya tiene nombre correcto (viene del scraping)
+            else:
+                archivo_final = scraper.renombrar_archivo(archivo, fecha_inicio)
+        
             logger.info("⏳ Esperando antes de cerrar...")
             sleep(3)
             print("\n" + "=" * 70)
