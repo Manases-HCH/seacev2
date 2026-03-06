@@ -116,7 +116,7 @@ class SeaceScraperCompleto:
 
         # ── 1. Cambiar a 20 filas/página ──────────────────────────────
         try:
-            selector = WebDriverWait(self.driver, 15).until(
+            selector = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.XPATH,
                     '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_paginator_bottom"]'
                     '//select[contains(@class,"ui-paginator-rpp-options")]'
@@ -127,12 +127,12 @@ class SeaceScraperCompleto:
                 "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));", selector
             )
             # Esperar a que la tabla se recargue con la nueva paginación
-            WebDriverWait(self.driver, 20).until(
+            WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.XPATH,
                     '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr[1]'
                 ))
             )
-            sleep(2)
+            sleep(1.5)
             logger.info("   ✅ Cambiado a 20 filas/página")
         except (NoSuchElementException, TimeoutException):
             logger.info("   ℹ️ No se pudo cambiar paginación, continuando con el default")
@@ -152,7 +152,7 @@ class SeaceScraperCompleto:
 
             # ── 2. Releer filas frescas en cada página ─────────────────
             try:
-                WebDriverWait(self.driver, 20).until(
+                WebDriverWait(self.driver, 15).until(
                     EC.presence_of_element_located((By.XPATH,
                         '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr[1]'
                     ))
@@ -208,12 +208,12 @@ class SeaceScraperCompleto:
                 self.driver.execute_script("arguments[0].click();", btn_next)
 
                 # Esperar a que la primera fila cambie (tabla recargada)
-                WebDriverWait(self.driver, 20).until(
+                WebDriverWait(self.driver, 15).until(
                     EC.presence_of_element_located((By.XPATH,
                         '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr[1]'
                     ))
                 )
-                sleep(2)
+                sleep(1.5)
                 pagina += 1
 
             except NoSuchElementException:
@@ -303,56 +303,18 @@ class SeaceScraperCompleto:
 
         logger.info("⏳ Esperando filas reales en tabla...")
         try:
-            # Aumentado a 60s para Cloud Run (JSF puede tardar bastante)
-            WebDriverWait(self.driver, 60).until(
+            WebDriverWait(self.driver, 20).until(
                 EC.presence_of_element_located((By.XPATH,
-                    '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr'
+                    '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]'
+                    '/tr[not(contains(@class,"ui-datatable-empty-message"))]'
                 ))
             )
-            sleep(3)  # dejar que JSF estabilice el ViewState
-
-            # Diagnóstico: qué hay realmente en la tabla
-            todas_filas = self.driver.find_elements(By.XPATH,
+            filas = self.driver.find_elements(By.XPATH,
                 '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr'
             )
-            logger.info(f"   📊 Filas totales en DOM: {len(todas_filas)}")
-            for idx, fila in enumerate(todas_filas[:3]):
-                cls = fila.get_attribute('class') or ''
-                txt = fila.text[:80].replace('\n', ' ')
-                logger.info(f"   Fila {idx+1} class='{cls}' text='{txt}'")
-
-            # Verificar si son filas vacías (mensaje "sin resultados")
-            filas_vacias = self.driver.find_elements(By.XPATH,
-                '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]'
-                '/tr[contains(@class,"ui-datatable-empty-message")]'
-            )
-            if filas_vacias and len(filas_vacias) == len(todas_filas):
-                logger.warning("⚠️ Tabla muestra mensaje de sin resultados")
-                return ''
-
-            filas_reales = [f for f in todas_filas
-                            if 'ui-datatable-empty-message' not in (f.get_attribute('class') or '')]
-            logger.info(f"   📊 Filas con datos: {len(filas_reales)}")
-
+            logger.info(f"   📊 Filas visibles: {len(filas)}")
+            sleep(3)  # dejar que JSF estabilice el ViewState
         except TimeoutException:
-            # Diagnóstico completo del DOM cuando falla
-            logger.warning("⚠️ Timeout 60s — diagnóstico del DOM:")
-            try:
-                tabla = self.driver.find_elements(By.XPATH,
-                    '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]'
-                )
-                logger.warning(f"   tbody encontrado: {len(tabla) > 0}")
-                if tabla:
-                    logger.warning(f"   tbody innerHTML (200c): {tabla[0].get_attribute('innerHTML')[:200]}")
-                # Estado del paginador
-                pag = self.driver.find_elements(By.XPATH,
-                    '//*[contains(@id,"dtProcesos_paginator")]'
-                )
-                logger.warning(f"   paginador encontrado: {len(pag) > 0}")
-                if pag:
-                    logger.warning(f"   paginador text: {pag[0].text[:100]}")
-            except Exception as diag_e:
-                logger.warning(f"   diagnóstico falló: {diag_e}")
             logger.warning("⚠️ No se detectaron filas — posiblemente sin resultados")
             return ''
 
@@ -580,4 +542,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()v
+    main()
