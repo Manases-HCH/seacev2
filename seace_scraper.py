@@ -31,45 +31,47 @@ class SeaceScraperCompleto:
 
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-        options = uc.ChromeOptions()
-
-        # Obligatorias para Cloud Run
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--disable-software-rasterizer')
-        options.add_argument('--window-size=1920,1080')
-        options.add_argument('--lang=es-PE,es;q=0.9')
-
-        # Carpeta de descarga automática + deshabilitar imágenes
-        prefs = {
-            "download.default_directory": DOWNLOAD_DIR,
-            "download.prompt_for_download": False,
-            "download.directory_upgrade": True,
-            "safebrowsing.enabled": True,
-            "profile.managed_default_content_settings.images": 2,
-            "profile.default_content_setting_values.notifications": 2,
-        }
-        options.add_experimental_option("prefs", prefs)
-
         # ── undetected_chromedriver ────────────────────────────────────
         # headless=True usa el modo nuevo internamente y parchea el binario
         # para eliminar todas las firmas de automatización detectables.
+        # IMPORTANTE: si falla hay que recrear options (no se puede reusar).
+        def _make_options():
+            o = uc.ChromeOptions()
+            o.add_argument('--no-sandbox')
+            o.add_argument('--disable-dev-shm-usage')
+            o.add_argument('--disable-gpu')
+            o.add_argument('--disable-software-rasterizer')
+            o.add_argument('--window-size=1920,1080')
+            o.add_argument('--lang=es-PE,es;q=0.9')
+            o.add_experimental_option("prefs", {
+                "download.default_directory": DOWNLOAD_DIR,
+                "download.prompt_for_download": False,
+                "download.directory_upgrade": True,
+                "safebrowsing.enabled": True,
+                "profile.managed_default_content_settings.images": 2,
+                "profile.default_content_setting_values.notifications": 2,
+            })
+            return o
+
         try:
             self.driver = uc.Chrome(
-                options=options,
+                options=_make_options(),
                 headless=True,
                 use_subprocess=False,   # necesario en Cloud Run (sin fork)
             )
-            logger.info("✅ Chrome iniciado (undetected-chromedriver)")
+            logger.info("✅ Chrome iniciado (undetected-chromedriver, use_subprocess=False)")
         except Exception as e:
             logger.warning(f"⚠️ Primer intento falló: {e}")
-            # Fallback: sin use_subprocess
-            self.driver = uc.Chrome(
-                options=options,
-                headless=True,
-            )
-            logger.info("✅ Chrome iniciado (undetected-chromedriver fallback)")
+            try:
+                # Fallback: con subprocess (opciones frescas)
+                self.driver = uc.Chrome(
+                    options=_make_options(),
+                    headless=True,
+                )
+                logger.info("✅ Chrome iniciado (undetected-chromedriver, subprocess=True)")
+            except Exception as e2:
+                logger.error(f"❌ Ambos intentos fallaron: {e2}")
+                raise
 
         # Habilitar descargas en headless
         self.driver.execute_cdp_cmd(
