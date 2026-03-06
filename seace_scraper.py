@@ -99,56 +99,84 @@ class SeaceScraperCompleto:
         sleep(0.2)
         
     def _scrapear_tabla_html(self, fecha_inicio: datetime) -> str:
-        """Extrae datos directamente del HTML cuando el botón exportar falla"""
+        """Extrae datos directamente del HTML, cambiando a 20 filas por página"""
         logger.info("🔄 Scrapeando tabla directamente...")
         try:
-            import pandas as pd
             from io import StringIO
+
+            # ✅ Cambiar a 20 filas por página (máximo disponible)
+            try:
+                selector = self.driver.find_element(By.XPATH,
+                    '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_paginator_bottom"]'
+                    '//select[contains(@class,"ui-paginator-rpp-options")]'
+                )
+                self.driver.execute_script("arguments[0].value = '20';", selector)
+                self.driver.execute_script(
+                    "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));", selector
+                )
+                sleep(2)
+                logger.info("   ✅ Cambiado a 20 filas por página")
+            except NoSuchElementException:
+                logger.info("   ℹ️ No se pudo cambiar paginación")
+
+            # Columnas que nos interesan (sin "Acciones")
+            columnas = ['N°', 'Entidad', 'Fecha Publicacion', 'Nomenclatura',
+                        'Reiniciado Desde', 'Objeto', 'Descripcion',
+                        'Cod SNIP', 'Cod CUI', 'VR/VE', 'Moneda', 'Version SEACE']
 
             todas_las_filas = []
             pagina = 1
 
             while True:
                 logger.info(f"   📄 Página {pagina}...")
-                tabla = self.driver.find_element(
-                    By.ID, 'tbBuscador:idFormBuscarProceso:dtProcesos'
-                ).get_attribute('outerHTML')
 
-                dfs = pd.read_html(StringIO(tabla))
-                if dfs:
-                    df = dfs[0].dropna(how='all')
-                    if len(df) == 0:
-                        break
-                    todas_las_filas.append(df)
-                    logger.info(f"   ✅ {len(df)} filas")
+                # Extraer filas directamente del DOM (más rápido que read_html)
+                filas = self.driver.find_elements(By.XPATH,
+                    '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr'
+                )
+
+                datos_pagina = []
+                for fila in filas:
+                    celdas = fila.find_elements(By.TAG_NAME, 'td')
+                    # Solo las primeras 12 columnas (ignorar "Acciones" col 13)
+                    valores = [c.text.strip() for c in celdas[:12]]
+                    if valores:
+                        datos_pagina.append(valores)
+
+                if datos_pagina:
+                    todas_las_filas.extend(datos_pagina)
+                    logger.info(f"   ✅ {len(datos_pagina)} filas")
 
                 # Siguiente página
                 try:
                     btn_next = self.driver.find_element(By.XPATH,
-                        '//*[contains(@id,"dtProcesos_paginator")]'
+                        '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_paginator_bottom"]'
                         '//span[contains(@class,"ui-icon-seek-next")]'
-                        '[not(contains(@class,"ui-state-disabled"))]/parent::*'
+                        '/parent::span[not(contains(@class,"ui-state-disabled"))]'
                     )
                     self.driver.execute_script("arguments[0].click();", btn_next)
-                    sleep(2)
+                    sleep(1.5)
                     pagina += 1
                 except NoSuchElementException:
+                    logger.info(f"   ✅ Fin. Total páginas: {pagina}")
                     break
 
             if not todas_las_filas:
-                logger.error("❌ Tabla vacía")
+                logger.error("❌ Sin datos")
                 return ''
 
-            df_final = pd.concat(todas_las_filas, ignore_index=True)
-            logger.info(f"   📊 Total: {len(df_final)} filas")
+            df = pd.DataFrame(todas_las_filas, columns=columnas)
+            logger.info(f"   📊 Total filas: {len(df)}")
 
             archivo = os.path.join(DOWNLOAD_DIR, f"LICIT_PROD2_{fecha_inicio.strftime('%y%m%d')}.xlsx")
-            df_final.to_excel(archivo, index=False, engine='openpyxl')
+            df.to_excel(archivo, index=False, engine='openpyxl')
             logger.info(f"✅ Guardado: {archivo}")
             return archivo
 
         except Exception as e:
             logger.error(f"❌ Error scraping tabla: {e}")
+            import traceback
+            traceback.print_exc()
             return ''
             
     def buscar_y_extraer(self, fecha_inicio: datetime, fecha_fin: datetime) -> str:
