@@ -129,14 +129,9 @@ class SeaceScraperCompleto:
 
             while True:
                 logger.info(f"   📄 Página {pagina}...")
-
-                # Extraer filas directamente del DOM (más rápido que read_html)
-                filas = self.driver.find_elements(By.XPATH,
-                    '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr'
-                )
-
+                
                 datos_pagina = []
-                filas_count = len(driver.find_elements(By.XPATH,
+                filas_count = len(self.driver.find_elements(By.XPATH,
                     '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr'
                 ))
         
