@@ -6,7 +6,9 @@ from datetime import datetime
 from time import sleep
 
 import pandas as pd
-import undetected_chromedriver as uc
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
@@ -26,58 +28,77 @@ class SeaceScraperCompleto:
         self.resultados = []
 
     def iniciar(self):
-        """Inicia el navegador con undetected-chromedriver (anti-bot)"""
-        logger.info("🚀 Iniciando navegador (undetected-chromedriver)...")
+        """Inicia el navegador Selenium con stealth manual"""
+        logger.info("🚀 Iniciando navegador...")
 
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-        # ── undetected_chromedriver ────────────────────────────────────
-        # headless=True usa el modo nuevo internamente y parchea el binario
-        # para eliminar todas las firmas de automatización detectables.
-        # IMPORTANTE: si falla hay que recrear options (no se puede reusar).
-        def _make_options():
-            o = uc.ChromeOptions()
-            o.add_argument('--no-sandbox')
-            o.add_argument('--disable-dev-shm-usage')
-            o.add_argument('--disable-gpu')
-            o.add_argument('--disable-software-rasterizer')
-            o.add_argument('--window-size=1920,1080')
-            o.add_argument('--lang=es-PE,es;q=0.9')
-            o.add_experimental_option("prefs", {
-                "download.default_directory": DOWNLOAD_DIR,
-                "download.prompt_for_download": False,
-                "download.directory_upgrade": True,
-                "safebrowsing.enabled": True,
-                "profile.managed_default_content_settings.images": 2,
-                "profile.default_content_setting_values.notifications": 2,
-            })
-            return o
+        options = Options()
 
-        try:
-            self.driver = uc.Chrome(
-                options=_make_options(),
-                headless=True,
-                use_subprocess=False,   # necesario en Cloud Run (sin fork)
-            )
-            logger.info("✅ Chrome iniciado (undetected-chromedriver, use_subprocess=False)")
-        except Exception as e:
-            logger.warning(f"⚠️ Primer intento falló: {e}")
-            try:
-                # Fallback: con subprocess (opciones frescas)
-                self.driver = uc.Chrome(
-                    options=_make_options(),
-                    headless=True,
-                )
-                logger.info("✅ Chrome iniciado (undetected-chromedriver, subprocess=True)")
-            except Exception as e2:
-                logger.error(f"❌ Ambos intentos fallaron: {e2}")
-                raise
+        # Obligatorias para Cloud Run
+        options.add_argument('--headless=new')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--disable-software-rasterizer')
+        options.add_argument('--disable-extensions')
+        options.add_argument('--window-size=1920,1080')
+        options.add_argument('--lang=es-PE,es;q=0.9')
 
-        # Habilitar descargas en headless
-        self.driver.execute_cdp_cmd(
-            "Page.setDownloadBehavior",
-            {"behavior": "allow", "downloadPath": DOWNLOAD_DIR}
+        # ── Stealth: ocultar huella de automatización ──────────────────
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_argument(
+            '--user-agent=Mozilla/5.0 (X11; Linux x86_64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/145.0.0.0 Safari/537.36'
         )
+        options.add_experimental_option('excludeSwitches', ['enable-automation'])
+        options.add_experimental_option('useAutomationExtension', False)
+
+        # Descargas + sin imágenes
+        options.add_experimental_option('prefs', {
+            'download.default_directory': DOWNLOAD_DIR,
+            'download.prompt_for_download': False,
+            'download.directory_upgrade': True,
+            'safebrowsing.enabled': True,
+            'profile.managed_default_content_settings.images': 2,
+            'profile.default_content_setting_values.notifications': 2,
+        })
+
+        # Usar chromedriver del sistema (misma versión que Chrome instalado)
+        for driver_path in ['/usr/bin/chromedriver', '/usr/local/bin/chromedriver', None]:
+            try:
+                if driver_path:
+                    self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+                else:
+                    self.driver = webdriver.Chrome(options=options)
+                logger.info(f"✅ Chrome iniciado (driver: {driver_path or 'PATH'})")
+                break
+            except Exception as e:
+                logger.warning(f"⚠️ {driver_path or 'PATH'} falló: {e}")
+        else:
+            raise RuntimeError("❌ No se pudo iniciar Chrome con ningún driver")
+
+        # Descargas en headless
+        self.driver.execute_cdp_cmd(
+            'Page.setDownloadBehavior',
+            {'behavior': 'allow', 'downloadPath': DOWNLOAD_DIR}
+        )
+
+        # Stealth JS — inyectar ANTES de navegar
+        self.driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+            'source': """
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['es-PE','es','en-US','en']});
+                window.chrome = {runtime: {}};
+                const _pq = navigator.permissions.query.bind(navigator.permissions);
+                navigator.permissions.query = (p) =>
+                    p.name === 'notifications'
+                        ? Promise.resolve({state: Notification.permission})
+                        : _pq(p);
+            """
+        })
 
         logger.info("✅ Navegador iniciado\n")
 
