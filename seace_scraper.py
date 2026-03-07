@@ -1,9 +1,9 @@
-import sys
 import os
 import logging
-import pandas as pd
 from datetime import datetime
 from time import sleep
+
+import pandas as pd
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -11,168 +11,191 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-
-logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = "/tmp"   # Cloud Run usa /tmp
+OUTPUT_DIR = "/tmp"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-def iniciar_driver():
+class SeaceScraperCompleto:
 
-    options = Options()
+    def __init__(self, headless=True):
+        self.headless = headless
+        self.driver = None
+        self.resultados = []
 
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
+    # -------------------------
+    # INICIAR DRIVER
+    # -------------------------
+    def iniciar(self):
 
-    driver = webdriver.Chrome(options=options)
+        options = Options()
 
-    return driver
+        if self.headless:
+            options.add_argument("--headless=new")
 
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
 
-def buscar(driver, fecha_inicio, fecha_fin):
+        logger.info("🚀 Iniciando Chrome")
 
-    url = "https://prod2.seace.gob.pe/seacebus-uiwd-pub/buscadorPublico/buscadorPublico.xhtml"
+        self.driver = webdriver.Chrome(options=options)
 
-    logger.info("🌐 Abriendo SEACE")
+    # -------------------------
+    # BUSCAR
+    # -------------------------
+    def buscar(self, fecha_inicio, fecha_fin):
 
-    driver.get(url)
+        url = "https://prod2.seace.gob.pe/seacebus-uiwd-pub/buscadorPublico/buscadorPublico.xhtml"
 
-    WebDriverWait(driver, 20).until(
-        EC.presence_of_element_located((By.ID, "tbBuscador:idFormBuscarProceso:dfechaInicio_input"))
-    )
+        logger.info("🌐 Abriendo SEACE")
 
-    # fechas
-    driver.execute_script("""
-    document.getElementById('tbBuscador:idFormBuscarProceso:dfechaInicio_input').value = arguments[0];
-    document.getElementById('tbBuscador:idFormBuscarProceso:dfechaFin_input').value = arguments[1];
-    """, fecha_inicio.strftime("%d/%m/%Y"), fecha_fin.strftime("%d/%m/%Y"))
+        self.driver.get(url)
 
-    sleep(1)
-
-    driver.find_element(By.ID, "tbBuscador:idFormBuscarProceso:btnBuscarSelToken").click()
-
-    logger.info("⏳ esperando resultados")
-
-    WebDriverWait(driver, 30).until(
-        EC.presence_of_element_located(
-            (By.XPATH, '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr')
-        )
-    )
-
-    logger.info("✅ tabla cargada")
-
-
-def extraer_pagina(driver):
-
-    filas = driver.execute_script("""
-
-    const rows = document.querySelectorAll(
-    "#tbBuscador\\\\:idFormBuscarProceso\\\\:dtProcesos_data tr"
-    );
-
-    const data = [];
-
-    rows.forEach(r => {
-
-        const cols = r.querySelectorAll("td");
-
-        if(cols.length >= 12){
-
-            data.push([
-                cols[0].innerText.trim(),
-                cols[1].innerText.trim(),
-                cols[2].innerText.trim(),
-                cols[3].innerText.trim(),
-                cols[4].innerText.trim(),
-                cols[5].innerText.trim(),
-                cols[6].innerText.trim(),
-                cols[7].innerText.trim(),
-                cols[8].innerText.trim(),
-                cols[9].innerText.trim(),
-                cols[10].innerText.trim(),
-                cols[11].innerText.trim()
-            ])
-
-        }
-
-    })
-
-    return data
-    """)
-
-    return filas
-
-
-def scrapear_tabla(driver):
-
-    columnas = [
-        'N°','Entidad','Fecha Publicacion','Nomenclatura',
-        'Reiniciado Desde','Objeto','Descripcion',
-        'Cod SNIP','Cod CUI','VR/VE','Moneda','Version SEACE'
-    ]
-
-    data_total = []
-
-    pagina = 1
-
-    while True:
-
-        logger.info(f"📄 Página {pagina}")
-
-        data = extraer_pagina(driver)
-
-        if not data:
-            break
-
-        data_total.extend(data)
-
-        logger.info(f"   filas: {len(data)}")
-
-        try:
-
-            next_btn = driver.find_element(
-                By.CSS_SELECTOR,
-                "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_paginator_bottom .ui-icon-seek-next"
+        WebDriverWait(self.driver, 30).until(
+            EC.presence_of_element_located(
+                (By.ID, "tbBuscador:idFormBuscarProceso:dfechaInicio_input")
             )
+        )
 
-            parent = next_btn.find_element(By.XPATH, "..")
+        self.driver.execute_script("""
+        document.getElementById('tbBuscador:idFormBuscarProceso:dfechaInicio_input').value = arguments[0];
+        document.getElementById('tbBuscador:idFormBuscarProceso:dfechaFin_input').value = arguments[1];
+        """,
+        fecha_inicio.strftime("%d/%m/%Y"),
+        fecha_fin.strftime("%d/%m/%Y")
+        )
 
-            if "ui-state-disabled" in parent.get_attribute("class"):
+        sleep(1)
+
+        self.driver.find_element(
+            By.ID,
+            "tbBuscador:idFormBuscarProceso:btnBuscarSelToken"
+        ).click()
+
+        logger.info("⏳ esperando resultados")
+
+        WebDriverWait(self.driver, 30).until(
+            EC.presence_of_element_located(
+                (By.XPATH, '//*[@id="tbBuscador:idFormBuscarProceso:dtProcesos_data"]/tr')
+            )
+        )
+
+        logger.info("✅ tabla cargada")
+
+    # -------------------------
+    # EXTRAER PAGINA
+    # -------------------------
+    def extraer_pagina(self):
+
+        filas = self.driver.execute_script("""
+
+        const rows = document.querySelectorAll(
+        "#tbBuscador\\\\:idFormBuscarProceso\\\\:dtProcesos_data tr"
+        );
+
+        const data = [];
+
+        rows.forEach(r => {
+
+            const cols = r.querySelectorAll("td");
+
+            if(cols.length >= 12){
+
+                data.push([
+                    cols[0].innerText.trim(),
+                    cols[1].innerText.trim(),
+                    cols[2].innerText.trim(),
+                    cols[3].innerText.trim(),
+                    cols[4].innerText.trim(),
+                    cols[5].innerText.trim(),
+                    cols[6].innerText.trim(),
+                    cols[7].innerText.trim(),
+                    cols[8].innerText.trim(),
+                    cols[9].innerText.trim(),
+                    cols[10].innerText.trim(),
+                    cols[11].innerText.trim()
+                ])
+
+            }
+
+        })
+
+        return data
+        """)
+
+        return filas
+
+    # -------------------------
+    # SCRAPEAR TABLA
+    # -------------------------
+    def scrapear_tabla(self):
+
+        columnas = [
+            'N°','Entidad','Fecha Publicacion','Nomenclatura',
+            'Reiniciado Desde','Objeto','Descripcion',
+            'Cod SNIP','Cod CUI','VR/VE','Moneda','Version SEACE'
+        ]
+
+        data_total = []
+        pagina = 1
+
+        while True:
+
+            logger.info(f"📄 Página {pagina}")
+
+            data = self.extraer_pagina()
+
+            if not data:
                 break
 
-            driver.execute_script("arguments[0].click()", parent)
+            data_total.extend(data)
 
-            sleep(1.5)
+            logger.info(f"   filas: {len(data)}")
 
-            pagina += 1
+            try:
 
-        except:
-            break
+                next_btn = self.driver.find_element(
+                    By.CSS_SELECTOR,
+                    "#tbBuscador\\:idFormBuscarProceso\\:dtProcesos_paginator_bottom .ui-icon-seek-next"
+                )
 
-    df = pd.DataFrame(data_total, columns=columnas)
+                parent = next_btn.find_element(By.XPATH, "..")
 
-    logger.info(f"📊 TOTAL FILAS: {len(df)}")
+                if "ui-state-disabled" in parent.get_attribute("class"):
+                    break
 
-    return df
+                self.driver.execute_script("arguments[0].click()", parent)
 
+                sleep(1.5)
 
-def main():
+                pagina += 1
 
-    fecha_inicio = datetime(2026,3,5)
-    fecha_fin = datetime(2026,3,5)
+            except:
+                break
 
-    driver = iniciar_driver()
+        df = pd.DataFrame(data_total, columns=columnas)
 
-    try:
+        logger.info(f"📊 TOTAL FILAS: {len(df)}")
 
-        buscar(driver, fecha_inicio, fecha_fin)
+        self.resultados = df
 
-        df = scrapear_tabla(driver)
+        return df
+
+    # -------------------------
+    # BUSCAR Y EXTRAER
+    # -------------------------
+    def buscar_y_extraer(self, fecha_inicio, fecha_fin):
+
+        self.buscar(fecha_inicio, fecha_fin)
+
+        df = self.scrapear_tabla()
+
+        if df.empty:
+            return None
 
         archivo = os.path.join(
             OUTPUT_DIR,
@@ -181,14 +204,66 @@ def main():
 
         df.to_excel(archivo, index=False)
 
-        logger.info(f"✅ archivo guardado {archivo}")
+        logger.info(f"💾 archivo guardado {archivo}")
 
-        print(archivo)
+        return archivo
+
+    # -------------------------
+    # RENOMBRAR ARCHIVO
+    # -------------------------
+    def renombrar_archivo(self, archivo, fecha_inicio):
+
+        nuevo = os.path.join(
+            OUTPUT_DIR,
+            f"LICIT_PROD2_{fecha_inicio.strftime('%y%m%d')}.xlsx"
+        )
+
+        os.rename(archivo, nuevo)
+
+        return nuevo
+
+    # -------------------------
+    # CERRAR
+    # -------------------------
+    def cerrar(self):
+
+        if self.driver:
+            logger.info("🔒 Cerrando navegador")
+            self.driver.quit()
+
+
+# -------------------------
+# MAIN (EJECUCIÓN LOCAL)
+# -------------------------
+if __name__ == "__main__":
+
+    import sys
+
+    logger.info("🚀 Ejecutando scraper en modo local")
+
+    if len(sys.argv) >= 3:
+
+        fecha_inicio = datetime.strptime(sys.argv[1], "%Y-%m-%d")
+        fecha_fin = datetime.strptime(sys.argv[2], "%Y-%m-%d")
+
+    else:
+
+        fecha_inicio = datetime(2026,3,5)
+        fecha_fin = datetime(2026,3,5)
+
+    scraper = SeaceScraperCompleto(headless=False)
+
+    try:
+
+        scraper.iniciar()
+
+        archivo = scraper.buscar_y_extraer(fecha_inicio, fecha_fin)
+
+        if archivo:
+            logger.info(f"✅ archivo generado: {archivo}")
+        else:
+            logger.warning("⚠️ sin resultados")
 
     finally:
 
-        driver.quit()
-
-
-if __name__ == "__main__":
-    main()
+        scraper.cerrar()
